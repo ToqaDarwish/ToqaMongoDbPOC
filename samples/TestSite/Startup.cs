@@ -8,6 +8,14 @@ using AspNetCore.Identity.Mongo;
 using SampleSite.Mailing;
 using Microsoft.AspNetCore.Authorization;
 using Policy;
+using TestSite.Models;
+using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
+using System.Text;
+using Microsoft.IdentityModel.Tokens;
+using System;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using AspNetCore.Identity.Mongo.Model;
 
 namespace TestSite
 {
@@ -25,7 +33,7 @@ namespace TestSite
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddIdentityMongoDbProvider<ApplicationUser>(identity =>
+            services.AddIdentityMongoDbProvider<ApplicationUser,MongoRole>(identity =>
                 {
                     identity.Password.RequireDigit = false;
                     identity.Password.RequireLowercase = false;
@@ -40,17 +48,100 @@ namespace TestSite
                 }
             );
 
+
+            services.Configure<MongoDatabaseSettings>(
+        Configuration.GetSection(nameof(MongoDatabaseSettings)));
+
+            services.AddSingleton<IMongoDatabaseSettings>(sp =>
+                sp.GetRequiredService<IOptions<MongoDatabaseSettings>>().Value);
+
             services.AddSingleton<IAuthorizationPolicyProvider, AuthorizationPolicyProvider>();
             services.AddSingleton<IAuthorizationHandler, HasClaimHandler>();
 
             services.AddSingleton<IEmailSender, EmailSender>();
+
+            var key = Encoding.ASCII.GetBytes(Configuration["JWT:Secret"]);
+
+            var tokenValidationParams = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidAudience = Configuration["JWT:ValidAudience"],
+                ValidIssuer = Configuration["JWT:ValidIssuer"],
+                ValidateLifetime = true,
+                RequireExpirationTime = false,
+                ClockSkew = TimeSpan.Zero
+            };
+
+            services.AddSingleton(tokenValidationParams);
+
+            //Adding Authentication
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+            //Adding Jwt Bearer
+            .AddJwtBearer(options =>
+            {
+                options.SaveToken = true;
+                options.RequireHttpsMetadata = false;
+                options.TokenValidationParameters = tokenValidationParams;
+
+            });
+
+            services.AddControllersWithViews();
+
             services.AddRazorPages();
+            services.AddControllersWithViews();
+            // Register the Swagger generator, defining 1 or more Swagger documents
+            services.AddSwaggerGen(c =>
+            {
+                c.SwaggerDoc("v1", new OpenApiInfo { Title = "ToqaMongoDbPOC", Version = "v1" });
+                c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme()
+                {
+                    Name = "Authorization",
+                    Type = SecuritySchemeType.ApiKey,
+                    Scheme = "Bearer",
+                    BearerFormat = "JWT",
+                    In = ParameterLocation.Header,
+                    Description = "JWT Authorization header using the Bearer scheme. \r\n\r\n Enter 'Bearer' [space] and then your token in the text input below.\r\n\r\nExample: \"Bearer 1safsfsdfdfd\"",
+                });
+                c.AddSecurityRequirement(new OpenApiSecurityRequirement
+                {
+                 {
+                       new OpenApiSecurityScheme
+                         {
+                             Reference = new OpenApiReference
+                             {
+                                 Type = ReferenceType.SecurityScheme,
+                                 Id = "Bearer"
+                             }
+                         },
+                         new string[] {}
+                 }
+                });
+
+            });
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
             app.UseDeveloperExceptionPage();
+
+            // Enable middleware to serve generated Swagger as a JSON endpoint.
+            app.UseSwagger();
+
+            // Enable middleware to serve swagger-ui (HTML, JS, CSS, etc.),
+            // specifying the Swagger JSON endpoint.
+            app.UseSwaggerUI(c =>
+            {
+                c.SwaggerEndpoint("/swagger/v1/swagger.json", "My API V1");
+            });
 
             app.UseHttpsRedirection();
             app.UseStaticFiles();

@@ -34,7 +34,7 @@ namespace AspNetCore.Identity.Mongo.Stores
             if (role == null) throw new ArgumentNullException(nameof(role));
 
             var found = await _collection.FirstOrDefaultAsync(x => x.NormalizedName == role.NormalizedName, cancellationToken).ConfigureAwait(false);
-
+            
             if (found == null) await _collection.InsertOneAsync(role, cancellationToken: cancellationToken).ConfigureAwait(false);
 
             return IdentityResult.Success;
